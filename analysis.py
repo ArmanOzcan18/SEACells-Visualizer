@@ -9,7 +9,13 @@ from math import sqrt
 
 def triangle_info(ad, A, seacell_1 = None, seacell_2 = None, seacell_3 = None):
     """
-    Given three SEACells, return the adjacency matrix, labels, and coordinates for the triangle that they form with the cells inside.
+    Given three SEACells, return the adjacency matrix, labels, and coordinates, and strength list for the triangle that they form with the cells inside.
+    :param ad: (AnnData) anndata object containing single cell data
+    :param A: (csr_matrix) of shape n_cells x n_SEACells containing assignment weights
+    :param seacell_1: (int) index of first SEACell
+    :param seacell_2: (int) index of second SEACell
+    :param seacell_3: (int) index of third SEACell
+    :return: (np.array) of the adjacency matrix of the triangle network, (list) of labels of the triangle, (list) of coordinates of the triangle, (list) of strength of the triangle
     """
     v1 = [0,sqrt(3)]
     v2 = [1,0]
@@ -59,6 +65,13 @@ def sparsify_assignments(A, thresh: float):
 
 # right now sparsify threshold is 0
 def summarise_by_SEACell(ad, A, summarize_layer: str = 'raw'):
+    """
+    Construct an anndata object containing SEACell data from single cell data and assignment weights.
+    :param ad: (AnnData) anndata object containing single cell data
+    :param A: (csr_matrix) of shape n_cells x n_SEACells containing assignment weights
+    :param summarize_layer: (str) layer of anndata
+    :return: (AnnData) anndata object containing SEACell data
+    """
     if summarize_layer == 'raw' and ad.raw != None:
         data = ad.raw.X
     else:
@@ -80,16 +93,18 @@ def summarise_by_SEACell(ad, A, summarize_layer: str = 'raw'):
     seacell_ad.var_names = ad.var_names
     seacell_ad.obs['Pseudo-sizes'] = A.sum(0)
     seacell_ad.var_names = ad.var_names
-    #why is this ordered?
     seacell_ad.obs_names = ['SEACell-' + str(i) for i in range(n_SEACells)]
 
     print('SEACell anndata constructed.')
+    seacell_ad.write_h5ad("seacell_anndata.h5ad")
     return seacell_ad
-
 
 def seacells_by_weights(A, threshold):
     """
     Return a list of proper SEACells assignments for each cell by thresholding the weights.
+    :param A: (csr_matrix) of shape n_cells x n_SEACells containing assignment weights
+    :param threshold: (float) threshold above which the assignment weight is considered non-trivial
+    :return: (list) of SEACell assignments for each cell
     """
     count_of_one_assignments= 0
     count_of_two_assignments = 0
@@ -107,7 +122,9 @@ def seacells_by_weights(A, threshold):
 
 def compute_nn_triangles(adjacency_list):
     """
-    Compute the triangles in the SEACElls graph using the adjacency list that the nearest neighbor method gave us.
+    Compute the triangles in the SEACElls graph using the adjacency list that the nearest neighbor method provides.
+    :param adjacency_list: (list) of lists of neighbors for each SEACell
+    :return: (list) of triangles in the SEACell graph
     """
     nn_triangles = []
     in_triangles = set()
@@ -126,8 +143,11 @@ def compute_nn_triangles(adjacency_list):
 
 def confirm_triangles(nn_triangles, list_of_SEACell_assignments_per_cell, count_threshold):
     """
-    Check if a nn_triangle is sufficiently represented by the list_of_SEACell_assignments_per_cell. If not, remove them..
-    Checking means looking if there are more than count_threshold cells that have non-trivial SEACell assignments to all three SEACells in each nn_triangle.
+    Returns the list of triangles that are sufficiently represented by the SEACell assignments.
+    :param nn_triangles: (list) of triangles in the SEACell graph computed by the nearest neighbor method
+    :param list_of_SEACell_assignments_per_cell: (list) of SEACell assignments for each cell
+    :param count_threshold: (int) threshold for the number of cells assigned to a SEACell triangle, above which that triangle is considered sufficiently represented
+    :return: (list) of confirmed triangles in the SEACell graph
     """
     counts = np.array([0] * len(nn_triangles))
     confirmed_triangles = []
@@ -136,7 +156,7 @@ def confirm_triangles(nn_triangles, list_of_SEACell_assignments_per_cell, count_
         for assignments in list_of_SEACell_assignments_per_cell:
             if(len(set(triangle).difference(set(assignments))) == 0):
                 counts[index] += 1
-        if(counts[index] > count_threshold):
+        if(counts[index] >= count_threshold):
             confirmed_triangles.append(triangle)
         else:
             removed_triangles.append(triangle)
@@ -146,12 +166,17 @@ def confirm_triangles(nn_triangles, list_of_SEACell_assignments_per_cell, count_
 def triangles(ad, A):
     """
     Compute the triangles in the graph of SEACells.
+    :param ad: (AnnData) anndata object containing single cell data
+    :param A: (csr_matrix) of shape n_cells x n_SEACells containing assignment weights
+    :return: (Data) object containing the adjacency matrix, labels, coordinates of the graph of SEACells, the list of confirmed triangles of SEACells, and the other information in Data object
     """
 
     from classes import Data
 
+
     # Take the anndata for SEACells
-    SEACell_ad = summarise_by_SEACell(ad, A, summarize_layer='raw')
+    #SEACell_ad = summarise_by_SEACell(ad, A, summarize_layer='raw')
+    SEACell_ad = sc.read("data/seacell_anndata.h5ad")
     number_of_seacells = SEACell_ad.shape[0]
 
     # Compute the list of SEACell assignments per cell
@@ -192,7 +217,7 @@ def triangles(ad, A):
     assert no_of_nn_triangles == len(nn_triangles), "There was an error in computing the nearest neighbor triangles."
 
     # Compute the confirmed_triangles
-    confirmed_triangles, removed_triangles, removed_seacells, count_matrix = confirm_triangles(nn_triangles, list_of_SEACell_assignments_per_cell, 0)
+    confirmed_triangles, removed_triangles, removed_seacells, count_matrix = confirm_triangles(nn_triangles, list_of_SEACell_assignments_per_cell, 3)
 
     list_of_triangles_for_each_seacell = []
     for i in range(number_of_seacells):
@@ -210,6 +235,8 @@ def triangles(ad, A):
 def adjacency_matrix_to_graph(adj_matrix):
     """
     Convert an adjacency matrix to a networkx graph.
+    :param adj_matrix: (np.array) of shape n_nodes x n_nodes containing the adjacency matrix
+    :return: (networkx.Graph) graph corresponding to the adjacency matrix
     """
     graph = nx.Graph()
     graph.add_nodes_from(range(adj_matrix.shape[0]))
@@ -222,6 +249,9 @@ def adjacency_matrix_to_graph(adj_matrix):
 def annotate_nodes(labels, graph):
     """
     Annotate nodes in a graph with a list of labels.
+    :param labels: (list) of labels for each node
+    :param graph: (networkx.Graph) graph to annotate
+    :return: (networkx.Graph) annotated graph
     """
     for i, label in enumerate(labels):
         graph.nodes[i]['label'] = label
@@ -230,6 +260,9 @@ def annotate_nodes(labels, graph):
 def add_coordinates(coords, graph):
     """
     Add coordinates to a graph.
+    :param coords: (list) of coordinates for each node
+    :param graph: (networkx.Graph) graph to annotate
+    :return: (networkx.Graph) graph with coordinates
     """
     for i, coord in enumerate(coords):
         graph.nodes[i]['x'] = coord[0]
