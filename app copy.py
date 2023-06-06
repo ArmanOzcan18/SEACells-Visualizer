@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore", message=".*The 'nopython' keyword.*")
 from dash import Dash, html, dash_table, dcc, Output, Input, State
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -11,6 +13,13 @@ import analysis as an
 import base64
 import io
 import SEACells
+import dash_uploader as du
+
+from time import sleep
+from flask import Response
+import webbrowser
+from numpy import linalg
+
 
 # Initialise Dash app
 app = Dash(
@@ -27,198 +36,34 @@ app.config.suppress_callback_exceptions = True
 # Path
 BASE_PATH = pathlib.Path(__file__).parent.resolve()
 DATA_PATH = BASE_PATH.joinpath("data").resolve()
-
+du.configure_upload(app, r"upload")
 
 # Load anndata containing single-cell data
-ad = sc.read(DATA_PATH.joinpath("anndata.h5ad"))
-# Load A, the assignment matrix of cells to SEACells
-A = np.load(DATA_PATH.joinpath("A.npy"))
+ad, SEACell_ad, A, data = None, None, None, None
 
-# Process anndata and assignment matrix to identify triangles which define phenotypes
-data = an.triangles(ad, A)
 
-    
-def description_card():
-    """
-    :return: A Div containing dashboard title & descriptions.
-    """
-    return html.Div(
-        id="description-card",
-        style={"width": "100%"},
-        children=[
-            html.H5("SEACells"),
-            html.H3("Welcome to the SEACells Visualization Dashboard!"),
-            html.Div(
-                id="intro",
-                children="Explore single cell data in the space of proximity to SEACells.",
-            ),
-            html.Div([
-                dcc.Upload(
-                id='upload-cell-anndata',
-                children=html.Div([
-                    'Upload Your Single-Cell Anndata. (h5ad) Drag and Drop or ',
-                    html.A('Select Files'),
-                ]),
-                accept='.h5ad',
-                style={
-                    'width': '100%',
-                    'height': '60px',
-                    'lineHeight': '60px',
-                    'borderWidth': '1px',
-                    'borderStyle': 'dashed',
-                    'borderRadius': '5px',
-                    'textAlign': 'center',
-                    'margin': '10px'
-                },
-                # Allow multiple files to be uploaded
-                multiple=False
-            ),
-            html.Div(id='output-seacells-anndata-upload'),
-            ]),
-            html.Div([
-                dcc.Upload(
-                id='upload-seacells-anndata',
-                children=html.Div([
-                    'Upload Your SEACells Anndata. (h5ad) Drag and Drop or ',
-                    html.A('Select Files'),
-                ]),
-                accept='.h5ad',
-                style={
-                    'width': '100%',
-                    'height': '60px',
-                    'lineHeight': '60px',
-                    'borderWidth': '1px',
-                    'borderStyle': 'dashed',
-                    'borderRadius': '5px',
-                    'textAlign': 'center',
-                    'margin': '10px'
-                },
-                # Allow multiple files to be uploaded
-                multiple=False
-            ),
-            html.Div(id='output-seacells-anndata-upload'),
-            ]),
-            html.Div([
-                dcc.Upload(
-                id='upload-assignment-matrix',
-                children=html.Div([
-                    'Upload Your Assignment Matrix. (npy) Drag and Drop or ',
-                    html.A('Select Files'),
-                ]),
-                accept='.npy',
-                style={
-                    'width': '100%',
-                    'height': '60px',
-                    'lineHeight': '60px',
-                    'borderWidth': '1px',
-                    'borderStyle': 'dashed',
-                    'borderRadius': '5px',
-                    'textAlign': 'center',
-                    'margin': '10px'
-                },
-                # Allow multiple files to be uploaded
-                multiple=True
-            ),
-            html.Div(id='output-assigment-matrix-upload'),
-            ]),
-        ],
-    )
-
-@app.callback(Output('output-cell-anndata-upload', 'children'),
-              Input('upload-cell-anndata', 'contents'),
-              State('upload-cell-anndata', 'filename'),
-              State('upload-cell-anndata', 'last_modified'))
-def update_cell_anndata_upload(content, list_of_names, list_of_dates):
-    if content is not None:
-        print(content[0])
-        print(list_of_names)
-        print(list_of_dates)
-        print("Uploaded!") 
-
-@app.callback(Output('output-seacells-anndata-upload', 'children'),
-              Input('upload-seacells-anndata', 'contents'),
-              State('upload-seacells-anndata', 'filename'),
-              State('upload-seacells-anndata', 'last_modified'))
-def update_seacells_anndata_upload(content, list_of_names, list_of_dates):
-    if content is not None:
-        print(content[0])
-        print(list_of_names)
-        print(list_of_dates)
-        print("Uploaded!")
-
-@app.callback(Output('output-assigment-matrix-upload', 'children'),
-              Input('upload-assignment-matrix', 'contents'),
-              State('upload-assignment-matrix', 'filename'),
-              State('upload-assignment-matrix', 'last_modified'))
-def update_assignment_matrix_upload(content, list_of_names, list_of_dates):
-    #print(content)
-    '''if content is not None:
-        r = base64.b64decode(content[0])
-        #print(r)
-        print(r)
-        q = np.frombuffer(r, dtype=np.float32)
-        print(q)
-        print(q.shape)
-        q2 = np.frombuffer(r, dtype=np.uint8)
-        print(q2.shape)
-        #q = np.frombuffer(r, dtype=np.float32)
-        #print(q.shape)
-        #print(q)
-   if content is not None:
-        children = [
-            parse_contents(c, n) for c, n in zip(content, list_of_names)
-        ]
-        return children'''
-
-def parse_contents(contents, filename):
-    content_type, content_string = contents.split(',')
-    #decoded = base64.b64decode(content_string)
-    print("asd")
-    r = base64.decodebytes(content_string)
-    print("asd")
-    try:
-        #arr = np.fromstring(decoded, dtype=float, sep=',') # adjust shape according to your need
-        q = np.frombuffer(r, dtype=np.float64)
-        print(q)
-        return html.Div([
-            html.H5(filename),
-            html.H6('Raw Data'),
-            html.Pre(contents[0:200] + '...', style={'whiteSpace': 'pre-wrap', 'wordBreak': 'break-all'}),
-            html.H6('Numpy Array'),
-            html.Pre(repr(q), style={'whiteSpace': 'pre-wrap', 'wordBreak': 'break-all'})
-        ])
-    except Exception as e:
-        print(e)
-        return html.Div([
-            'There was an error processing this file.'
-        ])
-
-old_clickData = None
-def generate_SEACells_description(clickData = None, triangle_no = 0):
+def generate_SEACells_description(clickData = None, triangle_no = 0, feature_no = 0):
     """
     Construct a Div containing SEACells triangle layout for a given SEACell.
     :param clickData: The data of the point clicked on the UMAP plot.
     :param triangle_no: The triangle number to display. If not specified, the first triangle is displayed.
     :return: A Div containing SEACells description.
     """
-    global old_clickData
-    if clickData is None and old_clickData is None:
-        tri_adj_matrix, tri_labels, tri_coords, strength = an.triangle_info(ad, A)
-        triangle_fig  = triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength)
-        triangles = []
-        return triangle_fig
-    if(clickData is None):
-        clickData = old_clickData
-    else:
-        old_clickData = clickData
+    tri_adj_matrix, tri_labels, tri_coords, strength = an.triangle_info(ad, A)
 
+    if feature_no == 0:
+        triangle_fig  = triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength = strength)
+    else:
+        triangle_fig  = triangle_layout(tri_adj_matrix, tri_labels, tri_coords, gene = ad.var_names[feature_no-1])
+    
+    if clickData is None:
+        return triangle_fig
+    
     clicked_seacell_no =  clickData['points'][0]['pointIndex']
     confirmed_triangles = data.confirmed_triangles
     triangles = [triangle for triangle in confirmed_triangles if triangle[0] == clicked_seacell_no or triangle[1] == clicked_seacell_no or triangle[2] == clicked_seacell_no]
     
-    if len(triangles) == 0:
-        tri_adj_matrix, tri_labels, tri_coords, strength = an.triangle_info(ad, A)
-        triangle_fig  = triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength)
+    if (len(triangles) == 0):
         return triangle_fig
 
     seacell_1 = triangles[triangle_no][0]
@@ -227,7 +72,11 @@ def generate_SEACells_description(clickData = None, triangle_no = 0):
 
     tri_adj_matrix, tri_labels, tri_coords, strength = an.triangle_info(ad, A, seacell_1, seacell_2, seacell_3)
 
-    triangle_fig  = triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength)
+    if feature_no == 0:
+        triangle_fig  = triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength = strength)
+    else:
+        triangle_fig  = triangle_layout(tri_adj_matrix, tri_labels, tri_coords, gene = ad.var_names[feature_no-1])
+    
     return triangle_fig
 
 def SEACells_description_card():
@@ -237,15 +86,25 @@ def SEACells_description_card():
     """
     triangle_fig = generate_SEACells_description()
 
+    feature_options = [{'label': "Assignment Strength", 'value': 0}]
+    for i, feature in enumerate(ad.var_names):
+        feature_options.append({'label': feature, 'value': i+1})
+
     return html.Div(
         id="SEACells-description-card",
         style={"height": "100%", "width": "100%"},
         children=[
-            html.H1("SEACells Triangle Layout"),
+            html.H5("SEACells Triangle Layout"),
             dcc.Dropdown(
                 id='triangles_dropdown',
-                value=1,
+                value=0,
                 placeholder="Select a triangle to view",
+            ),
+            dcc.Dropdown(
+                id='features_dropdown',
+                value=0,
+                options=feature_options,    
+                placeholder="Select a feature to view",
             ),
             dcc.Graph(id='SEACells-description-graph',
                 style={"height": "100%", "width": "100%"},
@@ -256,18 +115,41 @@ def SEACells_description_card():
 
 @app.callback(
     Output('SEACells-description-graph', 'figure', allow_duplicate=True),
-    Input('triangles_dropdown', 'value')
+    [Input('triangles_dropdown', 'value'),
+     Input('features_dropdown', 'value'),
+     Input('SEACells-network-graph', 'clickData')]
 )
-def update_triangles(value):
+def update_triangles(triangle_no, feature_no, clickData):
     """
     Update the SEACells description to show the selected triangle.
     :param value: The number value of the triangle to display.
     :return: The updated SEACells description.
     """
-    print(f'Update to {value}')
-    if value is None:
-        return generate_SEACells_description(triangle_no=0)
-    return generate_SEACells_description(triangle_no=value-1)
+    if clickData is None:
+        return generate_SEACells_description(feature_no=feature_no)
+    
+    if triangle_no is None:
+        print('ENTERED TRIANGLE NO IS NONE')
+        return generate_SEACells_description(clickData = clickData, triangle_no=0, feature_no=feature_no)
+    
+    clicked_seacell_no = clickData['points'][0]['pointIndex']
+
+    if len(data.list_of_triangles_for_each_seacell) <= clicked_seacell_no:
+        print('How can this happen?')
+        return generate_SEACells_description(clickData = clickData, triangle_no=0, feature_no=feature_no)
+    
+    triangles = data.list_of_triangles_for_each_seacell[clicked_seacell_no]
+
+    if len(triangles) <= triangle_no:
+        return generate_SEACells_description(clickData = clickData, triangle_no=0, feature_no=feature_no)
+    
+    print('Updated the triangle')
+
+    return generate_SEACells_description(clickData = clickData, triangle_no=triangle_no, feature_no=feature_no)
+
+
+
+
 
 @app.callback(
     Output('triangles_dropdown', 'options'),
@@ -281,13 +163,16 @@ def set_dropdown_options(clickData):
     if(clickData is None):
         return []
     clicked_seacell_no = clickData['points'][0]['pointIndex']
-    list_of_triangles_for_each_seacell = data.list_of_triangles_for_each_seacell
-    if clicked_seacell_no >= len(list_of_triangles_for_each_seacell):
+
+    if len(data.list_of_triangles_for_each_seacell) <= clicked_seacell_no:
+        print("ENTERED!!!") # I don't know why this is happening sometimes!
         return []
-    triangles = list_of_triangles_for_each_seacell[clicked_seacell_no]
+
+    triangles = data.list_of_triangles_for_each_seacell[clicked_seacell_no]
     column_options = []
     for i, triangle in enumerate(triangles):
-        column_options.append({'label': f'SEACell-{triangle[0]}, SEACell-{triangle[1]}, SEACell-{triangle[2]}', 'value': i+1})
+        column_options.append({'label': f'SEACell-{triangle[0]}, SEACell-{triangle[1]}, SEACell-{triangle[2]}', 'value': i})
+
     return column_options
 '''
 @app.callback(
@@ -297,7 +182,7 @@ def set_cities_value(available_triangles):
     return available_triangles[0]['value']
 '''
 
-def triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength):
+def triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength = None, gene = None):
     """
     Plot a triangle of SEACells
     :param adjacency_matrix: The adjacency matrix of SEACells on the vertices of the triangle
@@ -332,6 +217,13 @@ def triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength):
     node_y = []
     node_label = []
 
+    if strength is not None:
+        feature_title = 'Assignment Strength'
+        node_color = 'Hot'
+    else:
+        feature_title = gene.capitalize() + ' Expression'
+        node_color = 'Earth'
+
     for node in G.nodes():
         x, y = G.nodes[node]['x'], G.nodes[node]['y']
         node_x.append(x)
@@ -348,32 +240,53 @@ def triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength):
             # 'Greys' | 'YlGnBu' | 'Greens' | 'YlOrRd' | 'Bluered' | 'RdBu' |
             # 'Reds' | 'Blues' | 'Picnic' | 'Rainbow' | 'Portland' | 'Jet' |
             # 'Hot' | 'Blackbody' | 'Earth' | 'Electric' | 'Viridis' |
-            colorscale='YlGnBu',
+            colorscale=node_color,
             reversescale=True,
             color=[],
             size=10,
             colorbar=dict(
                 thickness=15,
-                title='Strength',
+                title=feature_title,
                 xanchor='left',
                 titleside='right'
             ),
             line_width=2))
 
-    node_strength = []
+
     node_text = []
+    node_strength = []
+    gene_expression = []
+
+    if strength is None:
+        cell_gene_series = ad.to_df().loc[:, gene]
+        SEACell_gene_series = SEACell_ad.to_df().loc[:, gene]
 
     for i, node in enumerate(G.nodes()):
         name = G.nodes[node]["label"]
-        if name.startswith("SEACell"):
-            continue
-        node_strength.append(strength[i])
-        type = ""
-        if(name != "SEACell"):
-            type = ad.obs['celltype'][name]
-        node_text.append(f'This is {name} of type {type} of strength: {strength[i]}')
 
-    node_trace.marker.color = node_strength
+        if strength is not None:
+            node_strength.append(strength[i])
+            
+            if(name.startswith("SEACell")):
+                node_text.append(name)
+            else:
+                node_text.append(f'{name} of type {ad.obs["celltype"][name]} of strength {strength[i]}')
+        else:
+            if(name == 'SEACell'):
+                gene_expression.append(0)
+                node_text.append(name)
+            elif(name.startswith("SEACell")):
+                gene_expression.append( SEACell_gene_series[name] )
+                node_text.append(f'{name} of {gene} expression { SEACell_gene_series[name] }')
+            else:
+                gene_expression.append( cell_gene_series[name] )
+                node_text.append(f'{name} of type {ad.obs["celltype"][name]} of  {gene} expression: {cell_gene_series[name]}')
+
+    if strength is not None:
+        node_trace.marker.color = node_strength
+    else:    
+        node_trace.marker.color = gene_expression
+    
     node_trace.text = node_text
 
     fig = go.Figure(data=[edge_trace, node_trace],
@@ -392,7 +305,7 @@ def triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength):
                     )
     
     fig.add_trace(go.Scatter(
-        hoverinfo='none',
+        hoverinfo='skip',
         x=[0, 1, -1],
         y=[sqrt(3)+0.05, -0.125, -0.125],
         mode="text",
@@ -402,6 +315,9 @@ def triangle_layout(tri_adj_matrix, tri_labels, tri_coords, strength):
         )
     return fig
 
+
+
+
 def plot_sc_umap(column, selected_SEACell=None):
     """
     Plot a UMAP plot of the single-cell data.
@@ -409,7 +325,6 @@ def plot_sc_umap(column, selected_SEACell=None):
     :param selected_SEACell: (str) The name of the SEACell to highlight in the UMAP plot. If None, no SEACell is highlighted.
     :return: A UMAP plot of the single-cell data.
     """
-    
     if column is None:
         if 'celltype' in ad.obs.columns:
             column = 'celltype'
@@ -451,6 +366,7 @@ def sc_umap_card(selected_SEACell=None):
     :param selected_SEACell: (str) The name of the SEACell to highlight in the UMAP plot. If None, no SEACell is highlighted.
     :return: A Div containing a UMAP plot of the single-cell data.
     """
+
     # Create dropdown options
     column_options = [{'label': i, 'value': i} for i in ad.obs.columns]
     if 'celltype' in ad.obs.columns:
@@ -459,9 +375,12 @@ def sc_umap_card(selected_SEACell=None):
         default = column_options[0]['value']
 
     # Generate UMAP plot
+    print('Generating UMAP plot!!!')
     cell_umap_fig = plot_sc_umap(default, selected_SEACell)
+
     return html.Div(
         id="sc-umap-card",
+        style={"width": "100%"},
         children=[
             html.H5("Single-cell UMAP"),
             dcc.Dropdown(
@@ -472,16 +391,13 @@ def sc_umap_card(selected_SEACell=None):
             dcc.Graph(
                 id="sc-umap-plot",
                 figure=cell_umap_fig,
-                style={"height": "100%", "width": "100%"}
-            ),
-        ],
-        style={"height": "100%", "width": "100%"}
+            )
+        ]
     )
 
 @app.callback(
     Output('sc-umap-plot', 'figure'),
-    Input('sc_umap_dropdown', 'value')
-)
+    Input('sc_umap_dropdown', 'value'), prevent_initial_call=True)
 def update_sc_umap_plot(value):
     """ 
     Update the UMAP plot to color by the selected column.
@@ -490,6 +406,7 @@ def update_sc_umap_plot(value):
     """
     print(f'Colouring sc UMAP plot by {value}')
     return plot_sc_umap(value)
+
 
 
 def plot_network_layout(adjacency_matrix, seacell_labels, UMAP_coords, clicked_point=None):
@@ -626,19 +543,15 @@ def plot_network_layout(adjacency_matrix, seacell_labels, UMAP_coords, clicked_p
 
     return fig
 
-
 # Use callbacks to update:
 # (1) the network layout (to highlight the selected SEACell on click)
 # (2) the UMAP plot (to highlight the cells assigned to the selected SEACell on click).
-# (3) the SEACells description (to show the description of the selected SEACell on click)
 @app.callback(
     [
         Output('SEACells-network-graph', 'figure'),
-        Output('sc-umap-plot', 'figure', allow_duplicate=True),
-        Output('SEACells-description-graph', 'figure')
-        #Output('triangles_dropdown', 'options', 'value')
+        Output('sc-umap-plot', 'figure', allow_duplicate=True)
     ],
-    Input('SEACells-network-graph', 'clickData')
+    Input('SEACells-network-graph', 'clickData'), prevent_initial_call=True
 )
 def update_network_layout_and_highlight_cells_on_sc_umap(clickData):
     """
@@ -656,9 +569,7 @@ def update_network_layout_and_highlight_cells_on_sc_umap(clickData):
     print(f'Updating network layout and highlighting cells assigned to SEACell {selected_SEACell} on click.')
     return plot_network_layout(data.adjacency_matrix, data.seacell_labels, data.UMAP_coords, clickData), \
            plot_sc_umap(None, selected_SEACell), \
-           generate_SEACells_description(clickData)
-           #SEACells_description_card(clickData)
-
+           
 
 # calls plot_network_layout to construct the figure
 def SEACells_network_card():
@@ -666,17 +577,20 @@ def SEACells_network_card():
     Generate a div containing a network layout of the SEACells.
     :return: A Div containing a network layout of the SEACells.
     """
+
     SEACells_network_fig = plot_network_layout(data.adjacency_matrix, data.seacell_labels, data.UMAP_coords)
+
     return html.Div(
         id="SEACells-network-card",
         style={"height": "100%", "width": "100%"},
         children=[
-            html.H1("SEACells Network Layout"),
+            html.H5("SEACells Network Layout"),
             dcc.Graph(id='SEACells-network-graph',
                       style={"height": "100%", "width": "100%"},
                       figure=SEACells_network_fig)
         ],
     )
+
 
 
 def boxplot_card():
@@ -750,32 +664,140 @@ def plot_boxplots(version):
         return None
 
 
+
+
+
+def description_card():
+    """
+    :return: A Div containing dashboard title & descriptions.
+    """
+    style = { 
+                "height": "auto",
+                "padding": "auto",
+                "margin": "auto",
+                "width": "70%",
+                'text-align': 'center',
+            }
+    return html.Div(
+        id="description-card",
+        style={"width": "100%"},
+        children=[
+            html.H5("SEACells", style={'textAlign': 'center', 'font-size': '4.2rem'}),
+            html.H3("Welcome to the SEACells Visualization Dashboard!", style={'textAlign': 'center'}),
+            html.P("Explore single cell data in the space of proximity to SEACells.", style={'textAlign': 'center'}),
+            html.Div(id='all-uploads' , children=[
+                html.Div(className="one-third column",
+                    children=[
+                        du.Upload(
+                            id='cell-anndata',
+                            text='Upload Cell Anndata',
+                            filetypes=['h5ad'],
+                            default_style = style
+                        ),
+                        html.Div(id='output-cell-anndata-upload', style= {'display': 'none'}),
+                    ]
+                ),
+                html.Div(className="one-third column", style={},
+                    children=[
+                        du.Upload(
+                            id='seacell-anndata',
+                            text='Upload SEACell Anndata',
+                            filetypes=['h5ad'],
+                            default_style = style
+                        ),
+                        html.Div(id='output-seacell-anndata-upload'),
+                    ]
+                ),
+                html.Div(className="one-third column", 
+                    children=[
+                        du.Upload(
+                            id='a-matrix',
+                            text='Upload Assignment Matrix',
+                            filetypes=['npy'],
+                            default_style = style
+                        ),
+                        html.Div(id='output-assignment-matrix-upload'),
+                    ]
+                ),
+            ]),
+            html.Div(id='display-val-container', style={'text-align': 'center',},
+                    children=[html.Button('Display', id='display-val', n_clicks=0, style={"margin-top": "1%",})]
+            ),
+        ],
+    )
+
+@du.callback(
+    output=Output("output-cell-anndata-upload", "children"),
+    id="cell-anndata",
+)
+def single_cell_callback(status: du.UploadStatus):
+    global ad
+    ad = sc.read(status.latest_file)
+    return None
+
+@du.callback(
+    output=Output("output-seacell-anndata-upload", "children"),
+    id="seacell-anndata",
+)
+def seacells_callback(status: du.UploadStatus):
+    global SEACell_ad
+    SEACell_ad = sc.read(status.latest_file)
+    return None
+
+@du.callback(
+    output=Output("output-assignment-matrix-upload", "children"),
+    id="a-matrix",
+)
+def a_matrix_callback(status: du.UploadStatus):
+    global A
+    A = np.load(status.latest_file)
+    return None
+
+
+
+@app.callback(
+    Output(component_id='left-column', component_property='children'),
+    Output(component_id='right-column', component_property='children'),
+    Output(component_id='display-val', component_property='disabled'), # Can change later! temporary solution
+    Input('display-val','n_clicks'), prevent_initial_call=True)
+def update_visibility(n_clicks):
+    if (n_clicks and n_clicks >= 1):
+
+        global ad, SEACell_ad, A, data
+
+        if (ad is None or A is None or SEACell_ad is None):
+            return [], [], None
+        
+        data = an.triangles(ad, A, SEACell_ad)
+        left_children = [sc_umap_card(),boxplot_card()]
+        right_children = [SEACells_network_card(), SEACells_description_card()]
+        return left_children, right_children, 'disabled'
+    else:
+        return [], [], None
+
+
 app.layout = html.Div(
     id="app-container",
+    style={},
     children=[
         # Left column
         html.Div(
-            id="left-column",
-            className="five columns",
-            children=[
-                description_card(),
-                sc_umap_card(),
-                boxplot_card(),
-            ]
+            children=[description_card()]
+        ),
+        html.Div(id="left-column",
+            className="six columns",
+            children=[],
         ),
         # Right column
-        html.Div(
-            id="right-column",
-            className="seven columns",
-            children=[
-                SEACells_network_card(),
-                SEACells_description_card(),
-            ],
+        html.Div(id="right-column",
+            style={"background-color": "#f9f9f9",},
+            className="six columns",
+            children=[],
         ),
     ],
 )
 
-
 # Run the server
 if __name__ == "__main__":
     app.run_server(debug=True)
+    webbrowser.open('http://127.0.0.1:8050/')

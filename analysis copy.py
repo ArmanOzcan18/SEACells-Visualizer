@@ -5,7 +5,8 @@ import scanpy as sc
 from tqdm import tqdm
 import networkx as nx
 from math import sqrt
-
+from numpy import random
+from numpy import linalg
 
 def triangle_info(ad, A, seacell_1 = None, seacell_2 = None, seacell_3 = None):
     """
@@ -21,7 +22,7 @@ def triangle_info(ad, A, seacell_1 = None, seacell_2 = None, seacell_3 = None):
     v2 = [1,0]
     v3 = [-1,0]
     tri_coords = [v1,v2,v3]
-    strength = [0, 0, 0]
+    strength = [1, 1, 1]
 
     if(seacell_1 == None or seacell_2 == None or seacell_3 == None):
         tri_adj_matrix = np.zeros(shape=(len(tri_coords), len(tri_coords)), dtype=np.int8)
@@ -39,6 +40,11 @@ def triangle_info(ad, A, seacell_1 = None, seacell_2 = None, seacell_3 = None):
             continue
         weight_1, weight_2, weight_3 = weight_1/sum, weight_2/sum, weight_3/sum
         coordinate = [weight_2 - weight_3, weight_1 * sqrt(3)]
+        
+        #if(linalg.norm([coordinate[0] - v1[0],coordinate[1] - v1[1]]) < 0.0001 or linalg.norm([coordinate[0] - v2[0],coordinate[1] - v2[1]]) < 0.0001 or linalg.norm([coordinate[0] - v3[0],coordinate[1] - v3[1]]) < 0.0001):
+        if(coordinate == v1 or coordinate == v2 or coordinate == v3):
+            coordinate = [coordinate[0] + 0.005 * random.rand() - 0.0025, coordinate[1] +  0.005 * random.rand() - 0.0025]
+        
         tri_coords.append(coordinate)
         strength.append(int(sum/0.05)/20)
         tri_labels.append(ad.obs.index[i])
@@ -163,7 +169,7 @@ def confirm_triangles(nn_triangles, list_of_SEACell_assignments_per_cell, count_
     removed_seacells = set(range(90)).difference(set(np.array(confirmed_triangles, dtype=object).flatten()))
     return confirmed_triangles, removed_triangles, removed_seacells, counts
 
-def triangles(ad, A):
+def triangles(ad, A, SEACell_ad):
     """
     Compute the triangles in the graph of SEACells.
     :param ad: (AnnData) anndata object containing single cell data
@@ -174,9 +180,13 @@ def triangles(ad, A):
     from classes import Data
 
 
-    # Take the anndata for SEACells
+    ''' # Take the anndata for SEACells
     #SEACell_ad = summarise_by_SEACell(ad, A, summarize_layer='raw')
-    SEACell_ad = sc.read("data/seacell_anndata.h5ad")
+    if (seacell_ad is None):
+        SEACell_ad = sc.read("data/seacell_anndata.h5ad")
+    else:
+        SEACell_ad = seacell_ad'''
+        
     number_of_seacells = SEACell_ad.shape[0]
 
     # Compute the list of SEACell assignments per cell
@@ -199,7 +209,7 @@ def triangles(ad, A):
     #print(adjacency_matrix[0])
 
     # Compute the adjacency list
-    list_order = SEACell_ad.obs_names.astype('U').str.split('-').str[1].astype(np.int)
+    list_order = SEACell_ad.obs_names.astype('U').str.split('-').str[1].astype(int)
     adjacency_list = np.array([np.where(adjacency_matrix[i] == 1)[0] for i in range(number_of_seacells)], dtype=object)
 
     # Make sure the SEACells labels are correct and sorted for the adjacency list
@@ -230,6 +240,7 @@ def triangles(ad, A):
     data = Data(np.array(confirmed_triangles), np.array(removed_triangles), removed_seacells, adjacency_matrix, SEACell_ad.obs_names, SEACell_ad.obsm['X_umap'], adjacency_list, list_of_triangles_for_each_seacell)
 
     return data
+
 
 
 def adjacency_matrix_to_graph(adj_matrix):
