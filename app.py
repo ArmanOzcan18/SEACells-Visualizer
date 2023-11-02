@@ -12,14 +12,24 @@ import plotly.express as px
 import analysis as an
 import base64
 import io
-import SEACells
-import dash_uploader as du
 
+import SEACells as SEACells
+import SEACells as SEACells
+
+import dash_uploader as du
 from time import sleep
 from flask import Response
 import webbrowser
 from numpy import linalg
 
+from celery import Celery
+import time
+
+from worker import seacells_algorithm
+
+
+from redis import Redis
+from rq import Queue
 
 # Initialise Dash app
 app = Dash(
@@ -675,7 +685,7 @@ def description_card():
                 "height": "auto",
                 "padding": "auto",
                 "margin": "auto",
-                "width": "70%",
+                "width": "30%",
                 'text-align': 'center',
             }
     return html.Div(
@@ -686,39 +696,17 @@ def description_card():
             html.H3("Welcome to the SEACells Visualization Dashboard!", style={'textAlign': 'center'}),
             html.P("Explore single cell data in the space of proximity to SEACells.", style={'textAlign': 'center'}),
             html.Div(id='all-uploads' , children=[
-                html.Div(className="one-third column",
+                html.Div(className="twelve columns",
                     children=[
                         du.Upload(
                             id='cell-anndata',
                             text='Upload Cell Anndata',
-                            filetypes=['h5ad'],
+                            # filetypes=['h5ad'],
                             default_style = style
                         ),
                         html.Div(id='output-cell-anndata-upload', style= {'display': 'none'}),
                     ]
-                ),
-                html.Div(className="one-third column", style={},
-                    children=[
-                        du.Upload(
-                            id='seacell-anndata',
-                            text='Upload SEACell Anndata',
-                            filetypes=['h5ad'],
-                            default_style = style
-                        ),
-                        html.Div(id='output-seacell-anndata-upload'),
-                    ]
-                ),
-                html.Div(className="one-third column", 
-                    children=[
-                        du.Upload(
-                            id='a-matrix',
-                            text='Upload Assignment Matrix',
-                            filetypes=['npy'],
-                            default_style = style
-                        ),
-                        html.Div(id='output-assignment-matrix-upload'),
-                    ]
-                ),
+                )
             ]),
             html.Div(id='display-val-container', style={'text-align': 'center',},
                     children=[html.Button('Display', id='display-val', n_clicks=0, style={"margin-top": "1%",})]
@@ -731,28 +719,49 @@ def description_card():
     id="cell-anndata",
 )
 def single_cell_callback(status: du.UploadStatus):
-    global ad
-    ad = sc.read(status.latest_file)
-    return None
+    fname = status.latest_file
+
+    print('BEFORE SETTING THE REDIS SERVER')
+   
+    r = Redis(host='localhost', port=6379)
+
+    print('AFTER SETTING THE REDIS SERVER')
+
+    q = Queue(connection=r)
+
+    job = q.enqueue(seacells_algorithm, fname)
+
+    #task = seacells_algorithm.delay(ad, model)
+    # result = task.get()
+    print('before: ', job.return_value())
+
+    while(job.return_value() is None):
+        print('waiting')
+        time.sleep(2)
+
+    
+    global ad, SEACell_ad, A
+    ad, SEACell_ad, A = job.return_value()
+
+    # mat = np.load(status.latest_file)
+    # From the single cell data, generate the SEACells and A matrix and procesed single cell data
+    # From seacell_computer.py
+    # task = seacells_algorithm_2.delay(ad)
+    # task = seacells_algorithm_2.delay(ad)
+    #ad, SEACell_ad, A = seacells_algorithm(ad)
+    # ad = task.get()
+    return "Uploaded Cell Anndata! {task.id}"
 
 @du.callback(
     output=Output("output-seacell-anndata-upload", "children"),
     id="seacell-anndata",
 )
-def seacells_callback(status: du.UploadStatus):
-    global SEACell_ad
-    SEACell_ad = sc.read(status.latest_file)
-    return None
+
 
 @du.callback(
     output=Output("output-assignment-matrix-upload", "children"),
     id="a-matrix",
 )
-def a_matrix_callback(status: du.UploadStatus):
-    global A
-    A = np.load(status.latest_file)
-    return None
-
 
 
 @app.callback(
