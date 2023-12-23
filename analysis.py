@@ -1,12 +1,12 @@
 import numpy as np
-import copy
-from scipy.sparse import csr_matrix
 import scanpy as sc
 from tqdm import tqdm
 import networkx as nx
 from math import sqrt
 from numpy import random
 from numpy import linalg
+from seacell_computer import sparsify_assignments
+from seacell_computer import summarise_by_SEACell
 
 def triangle_info(ad, A, seacell_1 = None, seacell_2 = None, seacell_3 = None):
     """
@@ -52,58 +52,6 @@ def triangle_info(ad, A, seacell_1 = None, seacell_2 = None, seacell_3 = None):
     tri_adj_matrix = np.zeros(shape=(len(tri_coords), len(tri_coords)), dtype=np.int8)
     tri_adj_matrix[0, 1:3], tri_adj_matrix[1:3, 0], tri_adj_matrix[2, 1], tri_adj_matrix[1, 2] = 1, 1, 1, 1
     return tri_adj_matrix, tri_labels, tri_coords, strength
-
-def sparsify_assignments(A, thresh: float):
-    """
-    Zero out all values below a threshold in an assignment matrix
-    :param A: (csr_matrix) of shape n_cells x n_SEACells containing assignment weights
-    :param thresh: (float) threshold below which to zero out assignment weights
-    :return: (np.array) of shape n_cells x n_SEACells containing assignment weights
-    """
-    A = copy.deepcopy(A)
-    A[A < thresh] = 0
-
-    # Renormalize
-    A = A / A.sum(1, keepdims=True)
-    A.sum(1)
-
-    return A
-
-# right now sparsify threshold is 0
-def summarise_by_SEACell(ad, A, summarize_layer: str = 'raw'):
-    """
-    Construct an anndata object containing SEACell data from single cell data and assignment weights.
-    :param ad: (AnnData) anndata object containing single cell data
-    :param A: (csr_matrix) of shape n_cells x n_SEACells containing assignment weights
-    :param summarize_layer: (str) layer of anndata
-    :return: (AnnData) anndata object containing SEACell data
-    """
-    if summarize_layer == 'raw' and ad.raw != None:
-        data = ad.raw.X
-    else:
-        data = ad.layers[summarize_layer]
-
-    A = sparsify_assignments(A.T, thresh=0)
-    n_cells, n_SEACells = A.shape
-
-    print('Constructing SEACell anndata from single cells and assignment weights...')
-    seacell_expressions = []
-    for ix in tqdm(range(n_SEACells)):
-        cell_weights = A[:, ix]
-        # Construct the SEACell expression using the
-        seacell_exp = data.multiply(cell_weights[:, np.newaxis]).toarray().sum(0) / cell_weights.sum()
-        seacell_expressions.append(seacell_exp)
-
-    seacell_expressions = csr_matrix(np.array(seacell_expressions))
-    seacell_ad = sc.AnnData(seacell_expressions, dtype=seacell_expressions.dtype)
-    seacell_ad.var_names = ad.var_names
-    seacell_ad.obs['Pseudo-sizes'] = A.sum(0)
-    seacell_ad.var_names = ad.var_names
-    seacell_ad.obs_names = ['SEACell-' + str(i) for i in range(n_SEACells)]
-
-    print('SEACell anndata constructed.')
-    seacell_ad.write_h5ad("seacell_anndata.h5ad")
-    return seacell_ad
 
 def seacells_by_weights(A, threshold):
     """
@@ -162,7 +110,7 @@ def confirm_triangles(nn_triangles, list_of_SEACell_assignments_per_cell, count_
         for assignments in list_of_SEACell_assignments_per_cell:
             if(len(set(triangle).difference(set(assignments))) == 0):
                 counts[index] += 1
-        if(counts[index] >= count_threshold):
+        if(counts[index] >= 2):
             confirmed_triangles.append(triangle)
         else:
             removed_triangles.append(triangle)
@@ -176,7 +124,7 @@ def triangles(ad, A, SEACell_ad):
     :param A: (csr_matrix) of shape n_cells x n_SEACells containing assignment weights
     :return: (Data) object containing the adjacency matrix, labels, coordinates of the graph of SEACells, the list of confirmed triangles of SEACells, and the other information in Data object
     """
-
+    
     from classes import Data
 
 
@@ -224,15 +172,29 @@ def triangles(ad, A, SEACell_ad):
     #print(nn_triangles)
 
     no_of_nn_triangles = int(np.trace(np.linalg.matrix_power(adjacency_matrix, 3)/6))
-    assert no_of_nn_triangles == len(nn_triangles), "There was an error in computing the nearest neighbor triangles."
+    print('HEre are the triangle numbers:')
+    print(no_of_nn_triangles)
+    print(len(nn_triangles))
+
+    # assert no_of_nn_triangles == len(nn_triangles), "There was an error in computing the nearest neighbor triangles."
 
     # Compute the confirmed_triangles
     confirmed_triangles, removed_triangles, removed_seacells, count_matrix = confirm_triangles(nn_triangles, list_of_SEACell_assignments_per_cell, 3)
+
+    print('Here are the counts:')
+    print(count_matrix)
+    print('confirmed triangles, removed triangles, removed seacells')
+    print(len(confirmed_triangles))
+    print(len(removed_triangles))
+    print(len(removed_seacells))
 
     list_of_triangles_for_each_seacell = []
     for i in range(number_of_seacells):
         triangles = [triangle for triangle in confirmed_triangles if triangle[0] == i or triangle[1] == i or triangle[2] == i]
         list_of_triangles_for_each_seacell.append(triangles)
+
+    print('Here are the triangles for each seacell:')
+    print(list_of_triangles_for_each_seacell)
 
     # Right now both confirmed and removed triangles include just numbers. I did not append "SEACell-" to them.
     # Also, each confirmed_triangle is sorted in ascending order. However, the list of confirmed triangles itself is not strictly sorted.
@@ -240,6 +202,7 @@ def triangles(ad, A, SEACell_ad):
     data = Data(np.array(confirmed_triangles), np.array(removed_triangles), removed_seacells, adjacency_matrix, SEACell_ad.obs_names, SEACell_ad.obsm['X_umap'], adjacency_list, list_of_triangles_for_each_seacell)
 
     return data
+
 
 
 

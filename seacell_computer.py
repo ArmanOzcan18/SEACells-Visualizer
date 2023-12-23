@@ -4,13 +4,11 @@ from scipy.sparse import csr_matrix
 import scanpy as sc
 from tqdm import tqdm
 from math import sqrt
+from numpy import random
+from numpy import linalg
 import pandas as pd
 import SEACells as SEACells
-import analysis as an
-
-from celery import Celery
-app = Celery('tasks')
-app.config_from_object('celery_config')
+import tkinter
 
 def sparsify_assignments(A, thresh: float):
     """
@@ -42,8 +40,7 @@ def summarise_by_SEACell(ad, A, summarize_layer: str = 'raw'):
     else:
         data = ad.layers[summarize_layer]
 
-    #A = sparsify_assignments(A.T, thresh=0)
-    A = A.T
+    A = sparsify_assignments(A.T, thresh=0)
     n_cells, n_SEACells = A.shape
 
     print('Constructing SEACell anndata from single cells and assignment weights...')
@@ -64,12 +61,10 @@ def summarise_by_SEACell(ad, A, summarize_layer: str = 'raw'):
     print('SEACell anndata constructed.')
     return seacell_ad
 
-@app.task
-def seacells_algorithm(fname, n_SEACells=50):
+
+def seacells_algorithm(ad):
     # Copy the counts to ".raw" attribute of the anndata since it is necessary for downstream analysis
     # This step should be performed after filtering
-
-    ad = sc.read(fname)
     raw_ad = sc.AnnData(ad.X)
     raw_ad.obs_names, raw_ad.var_names = ad.obs_names, ad.var_names
     ad.raw = raw_ad
@@ -86,6 +81,7 @@ def seacells_algorithm(fname, n_SEACells=50):
     ## User defined parameters
 
     ## Core parameters
+    n_SEACells = 90
     build_kernel_on = 'X_pca' # key in ad.obsm to use for computing metacells
                             # This would be replaced by 'X_svd' for ATAC data
 
@@ -98,21 +94,20 @@ def seacells_algorithm(fname, n_SEACells=50):
                     n_waypoint_eigs=n_waypoint_eigs,
                     convergence_epsilon = 1e-5)
 
-    
     model.construct_kernel_matrix()
-    # M = model.kernel_matrix
+    M = model.kernel_matrix
 
-    print('Initializing SEACells...')
     # Initialize archetypes
     model.initialize_archetypes()
 
-    print('Running SEACells...')
+    # Run the SEACell algorithm
+    print('Running SEACell algorithm...')
     model.fit(min_iter=10, max_iter=120)
+    print('SEACell algorithm complete.')
 
     # Compute SEACell anndata
-    SEACell_ad = summarise_by_SEACell(ad, model.A_)
-    # SEACell_ad = SEACells.core.summarize_by_SEACell(ad, SEACells_label='SEACell', summarize_layer='raw')
+    # SEACell_ad = summarise_by_SEACell(ad, model.A_)
+    SEACell_ad = SEACells.core.summarize_by_SEACell(ad, SEACells_label='SEACell', summarize_layer='raw')
 
-    data = an.triangles(ad, model.A_, SEACell_ad)
 
-    return ad, SEACell_ad, model.A_, data
+    return ad, SEACell_ad, model.A_
